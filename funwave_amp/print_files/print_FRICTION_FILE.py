@@ -1,5 +1,5 @@
 import numpy as np
-import funwave_ds.fw_py as fpy
+import funwave_amp as fpy
 
 
 """

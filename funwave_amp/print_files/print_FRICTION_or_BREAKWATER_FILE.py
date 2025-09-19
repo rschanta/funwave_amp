@@ -1,7 +1,7 @@
 
 import numpy as np
 
-import funwave_ds.fw_py as fpy
+import funwave_amp as fpy
 
 
 def print_FRICTION_OR_BREAKWATER_FILE(var_dict):

@@ -1,11 +1,77 @@
+
+import os
 import numpy as np
 import xarray as xr
-import funwave_ds.fw_py as fpy
+import funwave_amp as fpy
 from pathlib import Path
 import warnings
+from pathlib import Path
+from typing import  Dict, Any, Optional
+from pathlib import Path
 
+def find_prefixes_path(directory):
+        prefixes = []
+        for filename in os.listdir(directory):
+            # Split at extension
+            name, _ = os.path.splitext(filename)
+            
+            # Identify time step files (ends in XXXXX)
+            if name[-5:].isdigit() and len(name) > 5:
+                variable_ = name[:-5]
+            # Identify station files (ends in XXXX)
+            elif name[-4:].isdigit() and len(name) > 4:
+                variable_ = name[:-4]
+            # Identify non time-step files
+            else:
+                variable_ = name
+            # Append to list
+            prefixes.append(variable_)
 
+        # Remove duplicates
+        prefix_list = list(set(prefixes))
+        return prefix_list
 
+def get_var_out_paths(RESULT_FOLDER: Path, var: str) -> list[Path]:
+    '''
+    Gets a list of paths to all of the output files in RESULT_FOLDER that have 
+    names that begin with the string specified by `var`. For example, use `eta_` 
+    to get the eta files.
+    
+    ARGUMENTS:
+        - var (str): substring to search for at the beginning of file names. 
+            Best to use up to last underscore (ie- `eta_`, `U_undertow`) to 
+            avoid issues with similarly named variables
+    RETURNS: 
+        -path_of_vars (List(Path)): all the paths to the variables 
+            searched for
+
+    '''
+    out_XXXXX_path = Path(RESULT_FOLDER)
+    var_files = []
+    for file in out_XXXXX_path.iterdir():
+        if file.name.startswith(var):
+                var_files.append(file)
+                
+    path_of_vars = sorted(var_files, key=lambda p: p.name)            
+    return path_of_vars
+
+def get_vars_out_paths(RESULT_FOLDER: Path, var_search: list[str])-> Dict[str,list[Path]]:
+    '''
+    Applies `get_var_in_path` to the path specified for the variables 
+    specified in var_search to output a dictionary of path lists. Cleans up 
+    name a bit (trailing _)
+    
+    ARGUMENTS:
+        - out_XXXXX (Path): Path to out_XXXXX file
+    RETURNS: 
+        - var_search (List[str]): list of substrings for `get_var_output_paths`
+    '''
+    
+    all_var_paths = {}
+    for var in var_search:
+        varname = var[:-1] if var.endswith('_') else var  # Remove trailing _ if they exist
+        all_var_paths[varname] = get_var_out_paths(RESULT_FOLDER,var)
+    return all_var_paths
 
 #%% HELPER FUNCTIONS
 
@@ -77,6 +143,8 @@ def load_and_stack_to_tensors(Mglob,Nglob,all_var_dict):
 
 #%% MAIN OUTPUT 
 def get_into_netcdf():
+    print('\nStarted compressing raw output files in NetCDF...')
+
     # Acess necessary paths
     ptr = fpy.get_key_dirs()
 
@@ -95,11 +163,11 @@ def get_into_netcdf():
     RESULT_FOLDER = ptr['or']
 
     # Get list of all variables found in the result folder (eta, u, sta, time_dt, etc.)
-    var_list = fpy.find_prefixes_path(RESULT_FOLDER)
+    var_list = find_prefixes_path(RESULT_FOLDER)
     
     # Dictionary with keys for each variable type (eta,u,sta,etc.) and values a sorted list of all files
         # for each one (ie- {'eta': ['eta_00000','eta_00001', 'eta_00002' ...]})
-    var_paths = fpy.get_vars_out_paths(RESULT_FOLDER, var_list)
+    var_paths = get_vars_out_paths(RESULT_FOLDER, var_list)
 
     ## Get all outputs
     output_variables = load_and_stack_to_tensors(Mglob,Nglob,var_paths)
@@ -119,15 +187,19 @@ def get_into_netcdf():
     ## Add other variables
     for var_name, var_value in output_variables.items():
         
+        
         # TIME STEP FILES
         if (var_value.ndim == 3 and var_value.shape == (t_FW.size,Nglob,Mglob)):
             # Create variable with specified dimensions
             ds = ds.assign( {var_name: ( ['t_FW','Y','X'], var_value)})
+        elif var_value.ndim == 2 and Nglob == 1 and var_value.shape == (t_FW.size, Mglob):
+            var_value = var_value[:, np.newaxis, :]
+            ds = ds.assign({var_name: (['t_FW','Y','X'], var_value)})
+        
         
         # STATION FILES
         elif (var_name=='sta'):
-            print('\t\tCreating new NetCDF for stations...')
-            print(var_value.shape)
+            print('\tCompressing station data...')
             # Separate out eta,u,v
             t_station = np.squeeze(var_value[0,:,0])
             eta_station = np.squeeze(var_value[:,:,1])
@@ -155,7 +227,7 @@ def get_into_netcdf():
             ds_station.attrs = ds.attrs.copy()
             # Save to netcdf
             ds_station.to_netcdf(ptr['ns'])
-            print(f"Printed station .nc to {ptr['ns']}")
+            print(f"\t\tSuccessfully compressed station data to .nc file: {ptr['ns']}")
 
         # TIME AVERAGE FILES
         elif (var_value.ndim == 3 and var_value.shape[1:] == (Nglob,Mglob)):
@@ -174,5 +246,5 @@ def get_into_netcdf():
 
     # Save to netcdf
     ds.to_netcdf(ptr['nc'],mode='w', encoding=encoding)
-    print('NET-CDF Successfully saved!')
+    print(f"Succesfully compressed data to .nc file: {ptr['nc']}")
     return ds
