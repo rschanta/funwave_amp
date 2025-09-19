@@ -80,7 +80,7 @@ class SlurmPipeline:
             # If this is a dependent script, also need last job_id
             elif previous_job_id is not None:
                 dep_flags = {'dependency': previous_job_id}
-                job_id = self.__add_job(step_func,dep_flags = dep_flags **kwargs)
+                job_id = self.__add_job(step_func,dep_flags = dep_flags, **kwargs)
             
 
             # Update the last job_id
